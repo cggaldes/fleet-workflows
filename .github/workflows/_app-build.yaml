@@ -67,11 +67,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for i in 1 2 3 4 5; do
-            gh api --method PATCH \
-              /user/packages/container/${{ inputs.image-name }} \
-              -f visibility=public && break || {
-              echo "Attempt $i failed, retrying in 20s..."
-              sleep 20
-            }
+          for i in $(seq 1 10); do
+            VISIBILITY=$(gh api /user/packages/container/${{ inputs.image-name }} \
+              --jq '.visibility' 2>/dev/null || echo "not-found")
+
+            if [ "$VISIBILITY" = "public" ]; then
+              echo "Package is already public, nothing to do."
+              exit 0
+            elif [ "$VISIBILITY" = "private" ]; then
+              echo "Package is private, setting to public..."
+              gh api --method PATCH \
+                /user/packages/container/${{ inputs.image-name }} \
+                -f visibility=public && exit 0
+            fi
+
+            echo "Attempt $i: package not yet visible in API (push propagation lag), retrying in 20s..."
+            sleep 20
           done
+          echo "Package did not appear in API after 10 attempts, giving up."
+          exit 1
